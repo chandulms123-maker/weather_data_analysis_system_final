@@ -1,0 +1,292 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather Data Analysis System</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f3f6fb;color:#21324a;font:15px Arial,sans-serif}
+header{background:#173958;color:white;padding:25px 5%}
+header h1{margin:0 0 8px}
+header p{margin:0;color:#c8d9e9}
+main{max-width:1250px;margin:auto;padding:25px}
+section{background:white;border:1px solid #e1e8f0;border-radius:12px;padding:20px;margin-bottom:20px}
+h2{font-size:19px;margin-top:0}
+.filters,.cards{display:flex;flex-wrap:wrap;gap:12px}
+label{display:flex;flex-direction:column;gap:7px;flex:1;min-width:140px}
+input,select,button{padding:11px;border:1px solid #d2dce7;border-radius:7px;font:inherit}
+button{background:#2877c7;color:white;border:0;cursor:pointer}
+.cards article{flex:1;min-width:145px;background:#eef6ff;border-radius:10px;padding:15px}
+.cards p{margin:0;color:#637991;font-size:12px}
+.cards strong{display:block;font-size:25px;margin-top:12px}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.chart{height:280px;position:relative}
+table{width:100%;border-collapse:collapse;min-width:600px}
+th,td{padding:12px;text-align:left;border-bottom:1px solid #e7edf4}
+th{background:#f5f8fc;font-size:12px}
+.table-wrap{overflow-x:auto}
+#message{white-space:pre-wrap;line-height:1.6;overflow-wrap:anywhere}
+footer{text-align:center;color:#75869b;padding:20px}
+@media(max-width:700px){main{padding:12px}.charts{grid-template-columns:1fr}header{padding:22px}}
+</style>
+</head>
+<body>
+<header>
+<h1>☁ Weather Data Analysis System</h1>
+<p>Historical temperature, humidity and rainfall analysis</p>
+</header>
+
+<main>
+<section>
+<h2>Database and filters</h2>
+<p id="db">Checking MySQL connection...</p>
+<div class="filters">
+<label>Location
+<select id="location"><option value="">All locations</option></select>
+</label>
+<label>Start date<input type="date" id="start"></label>
+<label>End date<input type="date" id="end"></label>
+<button onclick="loadData()">Apply filters</button>
+<button onclick="resetFilters()">Reset</button>
+</div>
+</section>
+
+<section>
+<h2>Weather overview</h2>
+<div class="cards">
+<article><p>Observations</p><strong id="count">0</strong></article>
+<article><p>Average temperature</p><strong id="avg">— °C</strong></article>
+<article><p>Average humidity</p><strong id="humidity">— %</strong></article>
+<article><p>Total rainfall</p><strong id="rain">— mm</strong></article>
+</div>
+</section>
+
+<section>
+<h2>Upload weather CSV</h2>
+<p>Required columns: observation_date, location, temperature, humidity, rainfall.</p>
+<form id="uploadForm">
+<input type="file" id="csv" accept=".csv" required>
+<button type="submit">Validate and upload</button>
+</form>
+<p id="message"></p>
+</section>
+
+<div class="charts">
+<section><h2>Daily temperature trend (°C)</h2>
+<div class="chart"><canvas id="temperatureChart"></canvas></div></section>
+<section><h2>Monthly rainfall (mm)</h2>
+<div class="chart"><canvas id="rainChart"></canvas></div></section>
+<section><h2>Monthly temperature (°C)</h2>
+<div class="chart"><canvas id="monthlyChart"></canvas></div></section>
+</div>
+
+<section>
+<h2>Monthly weather summary</h2>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Month</th><th>Records</th><th>Minimum °C</th>
+<th>Average °C</th><th>Maximum °C</th>
+<th>Average humidity %</th><th>Total rainfall mm</th>
+</tr></thead>
+<tbody id="monthly"></tbody>
+</table></div>
+</section>
+
+<section>
+<h2>Recent observations</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Date</th><th>Location</th>
+<th>Temperature °C</th><th>Humidity %</th><th>Rainfall mm</th></tr></thead>
+<tbody id="records"></tbody>
+</table></div>
+</section>
+<footer>Weather Data Analysis System · Recorded data only · No forecasting</footer>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let charts = {};
+
+async function api(url, options={}) {
+    const response = await fetch(url, options);
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error || "Request failed");
+    return data;
+}
+
+function safe(value) {
+    return String(value ?? "").replace(/[&<>"']/g, c => ({
+        "&":"&amp;", "<":"&lt;", ">":"&gt;",
+        '"':"&quot;", "'":"&#39;"
+    }[c]));
+}
+
+function number(value) {
+    return value == null ? "—" : Number(value).toLocaleString(
+        undefined, {maximumFractionDigits:2}
+    );
+}
+
+function chart(id, type, labels, datasets) {
+    if (charts[id]) charts[id].destroy();
+
+    charts[id] = new Chart(document.getElementById(id), {
+        type,
+        data: {labels, datasets},
+        options: {
+            responsive:true,
+            maintainAspectRatio:false,
+            scales:{y:{beginAtZero:type==="bar"}},
+            plugins:{legend:{position:"bottom"}}
+        }
+    });
+}
+
+async function loadLocations() {
+    const list = await api("/api/locations");
+    const select = document.getElementById("location");
+    const old = select.value;
+
+    select.innerHTML = '<option value="">All locations</option>';
+    list.forEach(name => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        select.appendChild(option);
+    });
+    select.value = old;
+}
+
+async function loadData() {
+    const p = new URLSearchParams();
+     if ($("location").value)
+         p.set("location", $("location").value);
+    if ($("start").value)
+         p.set("start", $("start").value);
+    if ($("end").value)
+         p.set("end", $("end").value);
+
+    try {
+        const d = await api("/api/summary?" + p.toString());
+        const k = d.kpis || {};
+
+        count.textContent = number(k.records ?? 0);
+        avg.textContent = number(k.avg_temperature) + " °C";
+        humidity.textContent = number(k.avg_humidity) + " %";
+        rain.textContent = number(k.total_rainfall) + " mm";
+
+        const days = d.daily || [];
+        const months = d.monthly || [];
+
+        chart("temperatureChart", "line",
+            days.map(x => x.date), [{
+                label:"Average temperature °C",
+                data:days.map(x => x.avg_temperature),
+                borderColor:"#e99b43",
+                tension:.25
+            }]
+        );
+
+        chart("rainChart", "bar",
+            months.map(x => x.month), [{
+                label:"Rainfall mm",
+                data:months.map(x => x.total_rainfall),
+                backgroundColor:"#4d9ed7"
+            }]
+        );
+
+        chart("monthlyChart", "line",
+            months.map(x => x.month), [
+                {label:"Minimum °C",
+                 data:months.map(x=>x.min_temperature),
+                 borderColor:"#59a89a"},
+                {label:"Average °C",
+                 data:months.map(x=>x.avg_temperature),
+                 borderColor:"#347bc4"},
+                {label:"Maximum °C",
+                 data:months.map(x=>x.max_temperature),
+                 borderColor:"#e99b43"}
+            ]
+        );
+
+        monthly.innerHTML = months.map(x => `<tr>
+            <td>${safe(x.month)}</td>
+            <td>${number(x.observations)}</td>
+            <td>${number(x.min_temperature)}</td>
+            <td>${number(x.avg_temperature)}</td>
+            <td>${number(x.max_temperature)}</td>
+            <td>${number(x.avg_humidity)}</td>
+            <td>${number(x.total_rainfall)}</td>
+        </tr>`).join("") ||
+        '<tr><td colspan="7">No observations found.</td></tr>';
+
+        records.innerHTML = (d.records || []).map(x => `<tr>
+            <td>${safe(String(x.observation_date).slice(0,10))}</td>
+            <td>${safe(x.location)}</td>
+            <td>${number(x.temperature)}</td>
+            <td>${number(x.humidity)}</td>
+            <td>${number(x.rainfall)}</td>
+        </tr>`).join("") ||
+        '<tr><td colspan="5">No observations found.</td></tr>';
+
+    } catch (e) {
+        document.getElementById("db").textContent = e.message;
+    }
+}
+
+function resetFilters() {
+    document.getElementById("location").value = "";
+    document.getElementById("start").value = "";
+    document.getElementById("end").value = "";
+    loadData();
+}
+
+document.getElementById("uploadForm").addEventListener("submit",
+async function(e) {
+    e.preventDefault();
+    const file = document.getElementById("csv").files[0];
+    const msg = document.getElementById("message");
+    if (!file) return;
+
+    const form = new FormData();
+    form.append("file", file);
+    msg.textContent = "Validating and importing CSV...";
+
+    try {
+        const d = await api("/api/upload", {
+            method:"POST", body:form
+        });
+
+        msg.textContent =
+            `${d.message}\nTotal: ${d.total}; valid: ${d.valid}; ` +
+            `inserted: ${d.inserted}; rejected: ${d.rejected}.` +
+            (d.issues.length ? "\n" + d.issues.map(x =>
+                `CSV row ${x.row}: ${x.issues}`).join("\n")
+            : "\nNo invalid rows found.");
+
+        await loadLocations();
+        await loadData();
+    } catch (err) {
+        msg.textContent = err.message;
+    }
+});
+
+async function init() {
+    try {
+        await api("/api/status");
+        document.getElementById("db").textContent =
+            "MySQL connection successful";
+        await loadLocations();
+        await loadData();
+    } catch (e) {
+        document.getElementById("db").textContent =
+            "MySQL connection failed: " + e.message;
+    }
+}
+init();
+</script>
+</body>
+</html>

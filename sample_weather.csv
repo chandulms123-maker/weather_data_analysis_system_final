@@ -1,0 +1,17 @@
+
+observation_date,location,temperature,humidity,rainfall
+2026-01-01,Tirupati,25.2,62,0
+2026-01-02,Tirupati,26.1,59,0
+2026-01-03,Tirupati,24.8,67,2.5
+2026-02-01,Tirupati,28.4,55,0
+2026-02-02,Tirupati,29.1,52,0
+2026-02-03,Tirupati,27.8,58,1.2
+2026-03-01,Tirupati,32.2,48,0
+2026-03-02,Tirupati,33.0,45,0
+2026-03-03,Tirupati,31.5,50,0
+2026-01-01,Chennai,28.5,72,3.0
+2026-01-02,Chennai,29.0,70,0
+2026-02-01,Chennai,30.1,68,0
+2026-02-02,Chennai,30.5,67,4.2
+2026-03-01,Chennai,32.0,65,0
+2026-03-02,Chennai,31.4,66,0
